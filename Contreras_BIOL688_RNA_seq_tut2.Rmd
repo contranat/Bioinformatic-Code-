@@ -1,0 +1,215 @@
+---
+title: "RNAseq Tutorial 2"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+# purpose
+The overall purpose of this tutorialid to identify differentially expressed genes between mutation and WT. Overal the tutorial goes through how to make: DESeq2 object, preprocessing, normalization, differential expression testing and creating PCA/volcano plots. The goal is identify genes that whose expression is changed based on mutations in cancer cell lines (upregulated/downregulated).
+
+
+```{r}
+# install DESeq2
+#if (!require("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+
+#BiocManager::install("DESeq2")
+
+# install tidyverse (ggplot2 is in tidyverse)
+#install.packages("tidyverse")
+
+#if (!require("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+
+#BiocManager::install("apeglm")
+
+library(DESeq2) #runs the main RNA seq differential expression analysis 
+library(tidyverse) #used for wrangling and visualization plots
+library(ggplot2) #used for plotting results
+library(apeglm) #log2 fold 
+library(ggrepel) #prevents overlapping in plots 
+
+```
+
+```{r data}
+#load data constaining gene expression
+count_data <- read.csv("rna_counts_data.csv") #rows are genes, columns are samples
+```
+
+
+```{r dataframe manipulation}
+#extracts sample names from the count_data matrix
+SampleName <- c(colnames(count_data[-1])) #ignores first column
+count_data <- subset(count_data, select =-1) #removes geneID and length 
+
+#used map file to extract this information, using the file directly did not work (not sure why)
+#match sample order to count_data
+condition <- c("Mutation", "Mutation", "Mutation", "Mutation", "Mutation", "Mutation", "Mutation", "Mutation", "WT", "WT","Mutation", "Mutation", "Mutation", "Mutation", "Mutation", "Mutation", "Mutation", "Mutation","Mutation", "WT", "WT", "WT" )
+
+#create metadata data frame
+meta_dat <- data.frame(SampleName, condition) #table of sample name (sample) and condition
+#makes the sample name the row id 
+meta_dat <- meta_dat %>% remove_rownames %>% column_to_rownames(var="SampleName")
+meta_dat #combining the geneID and condition type (WT or mutated)
+
+#cheks that rows and columns match 
+all(colnames(count_data) %in% rownames(meta_dat))
+
+```
+
+```{r DESeq2}
+#creates DESeq2 object from the countdata matrix and metadata
+dds <- DESeqDataSetFromMatrix(countData = count_data,
+                              colData = meta_dat,
+                              design = ~ condition) #use condition to explain gene expression
+
+dds #outputs information of class, dimension, column names, etc. (object's elements)
+
+
+#pre-filter to reduce memory size and increase speed of transformation and other testing functions 
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,] #keep genes with counts greater than 10
+dds #dimension numbers reduced so it did filtered 
+
+
+#normalize counts
+#for downstream purposes
+# get normalized counts
+dds <- estimateSizeFactors(dds)
+normalized_counts <- counts(dds, normalized = TRUE) #get normalized counts
+ 
+```
+
+```{r differential expression}
+#results contain: table with log2 fold changes, p values and adjusted p values
+dds <- DESeq(dds)
+#shows results
+res <- results(dds)
+res #outputs
+
+summary(res) #summary of res results
+
+#exact number of adjusted p-values that are <0.01
+sum(res$padj < 0.1, na.rm=TRUE)
+
+#adjusted p-value of 0.05 instead 
+res05 <- results(dds, alpha=0.05)
+summary(res05)
+
+#number of genes with an adjusted p-value <0.05 
+sum(res$padj < 0.05, na.rm=TRUE) #stronger statistical significance 
+```
+
+```{r visualize results}
+# convert results data to basic dataframe
+data <- data.frame(res) 
+head(data)  #typically interested in log2FoldChange and padj
+
+#pca plot on log trans data
+rld <- rlog(dds)
+plotPCA(rld) #plots
+
+#volcano plot
+# add an additional column that identifies a gene as unregulated, downregulated, or unchanged
+# note the choice of pvalue and log2FoldChange cutoff. 
+data <- data %>%
+  mutate(
+  Expression = case_when(log2FoldChange >= log(1) & padj <= 0.05 ~ "Up-regulated",
+  log2FoldChange <= -log(1) & padj <= 0.05 ~ "Down-regulated",
+  TRUE ~ "Unchanged")
+  )
+head(data)
+
+top <- 10
+# we are getting the top 10 up and down regulated genes by filtering the column Up-regulated and Down-regulated and sorting by the adjusted p-value. 
+top_genes <- bind_rows(
+  data %>%
+  filter(Expression == 'Up-regulated') %>%
+  arrange(padj, desc(abs(log2FoldChange))) %>%
+  head(top),
+  data %>%
+  filter(Expression == 'Down-regulated') %>%
+  arrange(padj, desc(abs(log2FoldChange))) %>%
+  head(top)
+  )
+# create a datframe just holding the top 10 genes
+Top_Hits = head(arrange(data,pvalue),10)
+Top_Hits
+
+#actual volcano plot
+data$label = if_else(rownames(data) %in% rownames(Top_Hits), rownames(data), "")
+
+# basic plot
+p1 <- ggplot(data, aes(log2FoldChange, -log(pvalue,10))) + # -log10 conversion
+geom_point( size = 2/5) +
+xlab(expression("log"[2]*"FC")) +
+ylab(expression("-log"[10]*"P-Value")) +
+xlim(-4.5, 4.5)
+p1
+
+
+#add in red significant genes
+# basic plot with line + red for p < 0.05
+p2 <- ggplot(data, aes(log2FoldChange, -log(pvalue,10))) + # -log10 conversion
+geom_point(aes(color = Expression), size = 2/5) +
+#geom_hline(yintercept= -log10(0.05), linetype="dashed", linewidth = .4) +
+xlab(expression("log"[2]*"FC")) +
+ylab(expression("-log"[10]*"P-Value")) +
+scale_color_manual(values = c("firebrick3", "black", "firebrick3")) +
+xlim(-4.5, 4.5) +
+theme(legend.position = "none")
+p2
+
+
+#adds labels to the top 10 sigificant overall
+p3 <- ggplot(data, aes(log2FoldChange, -log(pvalue,10))) + # -log10 conversion
+geom_point(aes(color = Expression), size = 2/5) +
+# geom_hline(yintercept=-log10(0.05), linetype="dashed", linewidth = .4) +
+xlab(expression("log"[2]*"FC")) +
+ylab(expression("-log"[10]*"P-Value")) +
+scale_color_manual(values = c("firebrick3", "black", "firebrick3")) +
+xlim(-4.5, 4.5) +
+theme(legend.position = "none") +
+geom_text_repel(aes(label = label), size = 2.5)
+p3
+
+
+#plot with up/down regulated genes 
+# plot with up/down
+p4 <- ggplot(data, aes(log2FoldChange, -log(pvalue,10))) + # -log10 conversion
+geom_point(aes(color = Expression), size = 2/5) +
+#geom_hline(yintercept=-log10(0.05), linetype="dashed", linewidth = .4) +
+xlab(expression("log"[2]*"FC")) +
+ylab(expression("-log"[10]*"P-Value")) +
+scale_color_manual(values = c("dodgerblue3", "black", "firebrick3")) +
+xlim(-4.5, 4.5)
+p4
+
+#plot with up/down regulated genes but with labels
+# plot with up/down
+p5 <- ggplot(data, aes(log2FoldChange, -log(pvalue,10))) + # -log10 conversion
+geom_point(aes(color = Expression), size = 2/5) +
+# geom_hline(yintercept=-log10(0.05), linetype="dashed", linewidth = .4) +
+xlab(expression("log"[2]*"FC")) +
+ylab(expression("-log"[10]*"P-Value")) +
+scale_color_manual(values = c("dodgerblue3", "black", "firebrick3")) +
+xlim(-4.5, 4.5) +
+geom_text_repel(aes(label = label), size = 2.5)
+p5
+```
+
+Explain (1) The structure of the data set and the map file; (2) What the
+tables of results mean (each column). And if you can add some visuals that would be
+great
+
+1. the rna_counts_data.csv file contained raw gene expression count. The rows represent the genes and columns are the individual samples. Columns contain raw counts for each gene across all samples.
+ I didn't use the file rna_map_update copy.csv directly but I couldn't get them to have equal rows and columns, not sure why, but this file is meant to contain the sample metadata otherwise called map file. In this file which I also made manually, had columns describing sample name and condition. 
+ 
+2. The results from "results(dds) show baseMean, log2foldchange, lfcSE, stat, pvalue and padj. Of interest is the p-values, low adjusted pvalues are considered significantly differential expressed. 
+baseMean column contains the average normalized count. log2foldchange contains gene expression change between mutation and WT. lfcSE is the standard error of the log2foldchange. stat contains results from the wald test. pvalue column holds the raw values. padj alumn is the FDR adjusted p values. 
+The PCA plot shows gene expression after log transformation. It shows PC1 (97% variation) effectively separates WT from Mutatant groups. The volcano plots essentially explain the overall distribution of genes. 
+However, once we apply color to distinguish upregulated or downregulated then we get a more clearer picture. The last generated volcano plot is color coded, certain genes were identified to be more significantly unregulated (red) while others were identified to down regulated (blue). In my plot these have numbers that associated with a specific gene in the dataframe, identifying which genes these are would enable us to further explore these genes. 
+
+
+

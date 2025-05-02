@@ -1,0 +1,185 @@
+---
+title: "RNAseq Tutorial 3"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+# Purpose 
+Use Seurat pipeline to identify and characterize PBMCs. Overall the turtorial goes through: preprocessing, QC, normalization, dimensionality reduction and clustering, cell type identification, and annotate clusteres. 
+
+
+```{r packages}
+library(dplyr) #used for data manipulation
+library(Seurat) #main library for scRNA seq analysis
+library(patchwork) #used to make multiple plots
+library(ggplot2) #plots
+
+```
+
+```{r load data}
+# Load the PBMC dataset
+#this will need to be changed to your own directory 
+#pbmc.data <- Read10X(data.dir = "/Users/nat/Desktop/BIOL668/RNASEQ/filtered_gene_bc_matrices/hg19/")
+
+# Initialize the Seurat object with the raw (non-normalized data).
+#creates an object with 200 features and 3 cells per gene minimum
+pbmc <- CreateSeuratObject(counts = pbmc.data, project = "pbmc3k", min.cells = 3, min.features = 200)
+pbmc #outputs
+``` 
+
+
+```{r QC}
+# The [[ operator can add columns to object metadata. This is a great place to stash QC stats
+pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^MT-") #adds mitochondrial gene percentage as QC
+
+
+# Show QC metrics for the first 5 cells
+head(pbmc@meta.data, 5)
+
+# Visualize QC metrics as a violin plot
+VlnPlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+#makes scatterplots
+plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+
+#subsets cells based on specific QC thresholds
+pbmc <- subset(pbmc, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+```
+
+```{r normalize data}
+#normalizes data using logNormalize 
+pbmc <- NormalizeData(pbmc, normalization.method = "LogNormalize", scale.factor = 10000)
+pbmc <- NormalizeData(pbmc)
+```
+
+```{r highly variable features}
+#this function finds 2000 most variables genes using vst as the varaiance stabilizing transformation method
+pbmc <- FindVariableFeatures(pbmc, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(pbmc), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(pbmc)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+
+```{r scale data}
+#scale genes and remove sources of variation based on the %mitocondiral content
+all.genes <- rownames(pbmc)
+pbmc <- ScaleData(pbmc, features = all.genes)
+pbmc <- ScaleData(pbmc, vars.to.regress = "percent.mt")
+```
+
+
+```{r linear dimensional reduction}
+#perform PCA using variable features
+pbmc <- RunPCA(pbmc, features = VariableFeatures(object = pbmc))
+
+#prints loadings and features
+print(pbmc[["pca"]], dims = 1:5, nfeatures = 5)
+
+#creates plots and heatmaps of the PCA loadings
+VizDimLoadings(pbmc, dims = 1:2, reduction = "pca")
+DimPlot(pbmc, reduction = "pca") + NoLegend()
+
+DimHeatmap(pbmc, dims = 1, cells = 500, balanced = TRUE)
+DimHeatmap(pbmc, dims = 1:15, cells = 500, balanced = TRUE)
+```
+
+```{r dimensionality}
+#creates an elbow plot
+#determined the number of PCs based on variance explained
+ElbowPlot(pbmc)
+```
+
+```{r cluster cells}
+#these two functions uses the frist 10 PCs to assees neighbors and clusters 
+pbmc <- FindNeighbors(pbmc, dims = 1:10)
+pbmc <- FindClusters(pbmc, resolution = 0.5)
+
+
+# Look at cluster IDs of the first 5 cells
+head(Idents(pbmc), 5)
+```
+
+```{r non-linear dimensional redcution}
+#function seurat 
+#runs Manifold Approximation and Projection (UMAP) dimensional reduction technique.
+pbmc <- RunUMAP(pbmc, dims = 1:10)
+
+# note that you can set `label = TRUE` or use the LabelClusters function to help label
+# individual clusters
+DimPlot(pbmc, reduction = "umap")
+```
+
+```{r cluster biomarker}
+# find all markers of cluster 2
+cluster2.markers <- FindMarkers(pbmc, ident.1 = 2)
+head(cluster2.markers, n = 5)
+
+#compares clusters
+# find all markers distinguishing cluster 5 from clusters 0 and 3
+cluster5.markers <- FindMarkers(pbmc, ident.1 = 5, ident.2 = c(0, 3))
+head(cluster5.markers, n = 5)
+
+#identifies all postive markers 
+# find markers for every cluster compared to all remaining cells, report only the positive
+# ones
+pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE)
+pbmc.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1)
+
+#uses ROC as the method to find positive markers 
+cluster0.markers <- FindMarkers(pbmc, ident.1 = 0, logfc.threshold = 0.25, test.use = "roc", only.pos = TRUE)
+
+
+```
+
+```{r violin plot}
+#violin plot to visualize gene expression
+VlnPlot(pbmc, features = c("MS4A1", "CD79A"))
+
+# you can plot raw counts as well
+VlnPlot(pbmc, features = c("NKG7", "PF4"), slot = "counts", log = TRUE)
+
+#feature expression 
+FeaturePlot(pbmc, features = c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP",
+    "CD8A"))
+
+#creates a heat map with the top 10 marker genes
+pbmc.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1) %>%
+    slice_head(n = 10) %>%
+    ungroup() -> top10
+DoHeatmap(pbmc, features = top10$gene) + NoLegend()
+```
+
+```{r cell types to clusters}
+#renames cluster IDs 
+new.cluster.ids <- c("Naive CD4 T", "CD14+ Mono", "Memory CD4 T", "B", "CD8 T", "FCGR3A+ Mono",
+    "NK", "DC", "Platelet")
+names(new.cluster.ids) <- levels(pbmc)
+pbmc <- RenameIdents(pbmc, new.cluster.ids)
+
+#UMAP plot with labels 
+DimPlot(pbmc, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+
+#an even better plot 
+plot <- DimPlot(pbmc, reduction = "umap", label = TRUE, label.size = 4.5) + xlab("UMAP 1") + ylab("UMAP 2") +
+    theme(axis.title = element_text(size = 18), legend.text = element_text(size = 18)) + guides(colour = guide_legend(override.aes = list(size = 10)))
+#ggsave(filename = "../output/images/pbmc3k_umap.jpg", height = 7, width = 12, plot = plot, quality = 50)
+```
+

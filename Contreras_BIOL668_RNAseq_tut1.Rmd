@@ -1,0 +1,341 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+# Purpose 
+The overall purpose of this analysis was to perform differential analysis gene expression using 
+RNA-seq data from mouse mamary gland samples 
+
+# Personal Notes:
+
+* Counts summarized at the gene-level
+analyis: pre-processing, exploratory data analysis, differential expression testing, pathway analysis.
+
+* RNA-seq data from mouse mammary gland
+
+uses: edgeR packacage to import, organise, filter and normalise data
+
+uses: limma package w/ voom method which is a linear model and empirical Bayes moderation to assess differential expression and perform gene set testing.
+
+uses: Glimma package for interactive exploration of the results that inidividuals samples and genes can be examined. 
+
+```{r import libraries}
+library(limma) #linear modeling and differential expression
+library(Glimma) #used for interactive plots
+library(edgeR) #count data preprocessing and normalization
+library(Mus.musculus) #used for gene annotations
+#install.packages("R.utils")
+library(R.utils) #needed to get files "gunzip" function
+library(RColorBrewer) #used for access color palettes 
+```
+
+
+```{r download data}
+#takes data from the url 
+url <- "https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE63310&format=file"
+utils::download.file(url, destfile="GSE63310_RAW.tar", mode="wb")  #downloads raw data
+utils::untar("GSE63310_RAW.tar", exdir = ".") #untars
+
+#assigns "files" for all the txt files 
+files <- c("GSM1545535_10_6_5_11.txt", "GSM1545536_9_6_5_11.txt", "GSM1545538_purep53.txt",
+  "GSM1545539_JMS8-2.txt", "GSM1545540_JMS8-3.txt", "GSM1545541_JMS8-4.txt",
+  "GSM1545542_JMS8-5.txt", "GSM1545544_JMS9-P7c.txt", "GSM1545545_JMS9-P8c.txt")
+
+#decompresses .gz files 
+for(i in paste(files, ".gz", sep=""))
+  R.utils::gunzip(i, overwrite=TRUE)
+
+#outputs file 1 with just the 5 rows, to observe data 
+read.delim(files[1], nrow=5)
+```
+
+
+```{r edge}
+#use edgeR to combine all text files into a matrix of counts using the readDGE function
+x <- readDGE(files, columns=c(1,3)) #contains 2.7k rows with Entrez gene identifiers and nine columns related to indivudal samples
+
+class(x) #outputs what kind of class x is = edgeR
+
+dim(x) #outputs the dimensions of the dataset, 2.7k rows and 9 columns
+
+```
+
+```{r data modifications}
+#extracts columns and characters and stores them in samplenames
+samplenames <- substring(colnames(x), 12, nchar(colnames(x)))
+samplenames
+
+#takes the column names of the new samplenames dataframe
+colnames(x) <- samplenames
+group <- as.factor(c("LP", "ML", "Basal", "Basal", "ML", "LP",   #specifies these group names as factors 
+                     "Basal", "ML", "LP"))
+
+#creates separate columns/organizes data to match by lane (treated as factor) 
+x$samples$group <- group
+lane <- as.factor(rep(c("L004","L006","L008"), c(3,4,2))) 
+x$samples$lane <- lane
+x$samples #outputs only samples
+#DGEList-object contains a samples data frame that stores both cell type (or group) and batch (sequencing lane) information, each of which consists of three distinct levels
+```
+
+```{r organize gene annotations}
+#creates a dataframe names genes that stores gene-level information
+geneid <- rownames(x) #takes row names as geneids
+genes <- select(Mus.musculus, keys=geneid, columns=c("SYMBOL", "TXCHROM"), 
+                keytype="ENTREZID") #selects specific genes 
+head(genes) #outputs specific gene information
+
+genes <- genes[!duplicated(genes$ENTREZID),] #removes duplicate gene based on ENTREZID
+x$genes <- genes #updates modification
+x #outputs
+```
+
+
+# Data pre-processing
+```{r pre-processing}
+#filters and normalizes
+#takes raw counts and converts to log
+cpm <- cpm(x) 
+lcpm <- cpm(x, log=TRUE)  
+
+#takes mean and median
+L <- mean(x$samples$lib.size) * 1e-6
+M <- median(x$samples$lib.size) * 1e-6
+c(L, M) #combines and displays
+
+summary(lcpm) #outputs summary information
+
+```
+
+# Removing gene that lowly expressed 
+
+```{r lowly expressed genes removal}
+#checks which genes have zero counts
+table(rowSums(x$counts==0)==9)
+
+#filters genes with low expression 
+keep.exprs <- filterByExpr(x, group=group)
+x <- x[keep.exprs,, keep.lib.sizes=FALSE] #assigned to variable x the results of the filtering
+dim(x) #prints the dimensions of the dataframe (should see reduction)
+```
+
+```{r}
+#creates a plot 
+#cutoff for low expression
+lcpm.cutoff <- log2(10/M + 2/L) #takes the log2 fold
+
+#defines colors for eaiser plotting
+nsamples <- ncol(x)
+col <- brewer.pal(nsamples, "Paired")
+
+#plot density
+par(mfrow=c(1,2))
+plot(density(lcpm[,1]), col=col[1], lwd=2, ylim=c(0,0.26), las=2, main="", xlab="")
+title(main="A. Raw data", xlab="Log-cpm")
+abline(v=lcpm.cutoff, lty=3)
+for (i in 2:nsamples){
+den <- density(lcpm[,i])
+lines(den$x, den$y, col=col[i], lwd=2)
+}
+legend("topright", samplenames, text.col=col, bty="n")
+
+#plot density for filtered data
+lcpm <- cpm(x, log=TRUE)
+plot(density(lcpm[,1]), col=col[1], lwd=2, ylim=c(0,0.26), las=2, main="", xlab="")
+title(main="B. Filtered data", xlab="Log-cpm")
+abline(v=lcpm.cutoff, lty=3)
+for (i in 2:nsamples){
+den <- density(lcpm[,i])
+lines(den$x, den$y, col=col[i], lwd=2)
+}
+legend("topright", samplenames, text.col=col, bty="n")
+```
+
+# Normalising gene expression distributions
+
+```{r}
+#normalizes using TMM as method
+x <- calcNormFactors(x, method = "TMM")
+x$samples$norm.factors #outputs
+
+#visualize normalization
+x2 <- x
+x2$samples$norm.factors <- 1
+x2$counts[,1] <- ceiling(x2$counts[,1]*0.05)
+x2$counts[,2] <- x2$counts[,2]*5
+```
+
+```{r plot}
+#plot to compare before and after normalization
+par(mfrow=c(1,2))
+lcpm <- cpm(x2, log=TRUE)
+boxplot(lcpm, las=2, col=col, main="")
+title(main="A. Example: Unnormalised data",ylab="Log-cpm")
+
+
+x2 <- calcNormFactors(x2)  
+x2$samples$norm.factors
+lcpm <- cpm(x2, log=TRUE)
+boxplot(lcpm, las=2, col=col, main="")
+title(main="B. Example: Normalised data",ylab="Log-cpm")
+```
+
+# Unsupervised clustering of samples
+
+```{r}
+#performs MDS by group and lane 
+lcpm <- cpm(x, log=TRUE)
+par(mfrow=c(1,2))
+col.group <- group
+levels(col.group) <-  brewer.pal(nlevels(col.group), "Set1")
+col.group <- as.character(col.group)
+col.lane <- lane
+levels(col.lane) <-  brewer.pal(nlevels(col.lane), "Set2")
+col.lane <- as.character(col.lane)
+
+#plot for groups
+plotMDS(lcpm, labels=group, col=col.group)
+title(main="A. Sample groups")
+
+#plot for lanes
+plotMDS(lcpm, labels=lane, col=col.lane, dim=c(3,4))
+title(main="B. Sequencing lanes")
+
+```
+
+```{r glimma}
+#plots an interactive MDS plot using glimma
+plotglimma <- glMDSPlot(lcpm, labels=paste(group, lane, sep="_"), 
+          groups=x$samples[,c(2,5)], launch=FALSE)
+plotglimma
+
+```
+
+
+# Differential Expression Analysis 
+```{r}
+#creates matrix
+design <- model.matrix(~0+group+lane)
+colnames(design) <- gsub("group", "", colnames(design))
+design
+
+#defines constrasts for group specific comparisons
+contr.matrix <- makeContrasts(
+   BasalvsLP = Basal-LP, 
+   BasalvsML = Basal - ML, 
+   LPvsML = LP - ML, 
+   levels = colnames(design))
+contr.matrix
+```
+
+
+# Removing heteroscedascity from count data
+```{r}
+#voom transformation that models mean variance relationship
+par(mfrow=c(1,2))
+v <- voom(x, design, plot=TRUE)
+v
+
+
+#final model 
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=contr.matrix)
+efit <- eBayes(vfit)
+plotSA(efit, main="Final model: Mean-variance trend")
+```
+
+
+# Examining number of DE genes
+
+```{r}
+#summarizes genes 
+summary(decideTests(efit))
+
+#applies treat function which applied log2 fold threshold
+tfit <- treat(vfit, lfc=1) #treat applies a logfc threshold
+dt <- decideTests(tfit)
+summary(dt) #outputs
+
+#indentifies genes different 
+de.common <- which(dt[,1]!=0 & dt[,2]!=0)
+length(de.common)
+
+#view common genes
+head(tfit$genes$SYMBOL[de.common], n=20)
+
+#ven diagram
+vennDiagram(dt[,1:2], circle.col=c("turquoise", "salmon"))
+
+#write.fit(tfit, dt, file="results.txt")
+```
+
+
+# Examining individual DE genes from top to bottom
+
+```{r}
+#extracts top genes
+basal.vs.lp <- topTreat(tfit, coef=1, n=Inf)
+basal.vs.ml <- topTreat(tfit, coef=2, n=Inf)
+head(basal.vs.lp) #outputs constrast 1 
+
+head(basal.vs.ml) #outputs constrast 2
+```
+
+# Graphical representation of differential expression
+
+```{r}
+#plots MD to visualize differential expression results
+plotMD(tfit, column=1, status=dt[,1], main=colnames(tfit)[1], 
+       xlim=c(-8,13))
+
+#uses glimma to create interavtive MD plot
+glMDPlot(tfit, coef=1, status=dt, main=colnames(tfit)[1],
+         side.main="ENTREZID", counts=lcpm, groups=group, launch=FALSE)
+```
+
+```{r}
+#heatmap of genes from basal vs lp
+library(gplots)
+basal.vs.lp.topgenes <- basal.vs.lp$ENTREZID[1:100]
+i <- which(v$genes$ENTREZID %in% basal.vs.lp.topgenes)
+mycol <- colorpanel(1000,"blue","white","red")
+heatmap.2(lcpm[i,], scale="row",
+   labRow=v$genes$SYMBOL[i], labCol=group, 
+   col=mycol, trace="none", density.info="none", 
+   margin=c(8,6), lhei=c(2,10), dendrogram="column")
+
+```
+
+# Gene set testing with camera
+```{r}
+#load(system.file("extdata", "mouse_c2_v5p2.rdata", package = "RNAseq123"))
+idx <- ids2indices(Mm.c2,id=rownames(v))
+cam.BasalvsLP <- camera(v,idx,design,contrast=contr.matrix[,1]) #tests where a gene set is highly ranked compares to the other genes
+head(cam.BasalvsLP,5)
+
+
+cam.BasalvsML <- camera(v,idx,design,contrast=contr.matrix[,2])
+head(cam.BasalvsML,5)
+
+
+cam.LPvsML <- camera(v,idx,design,contrast=contr.matrix[,3])
+head(cam.LPvsML,5)
+```
+
+
+```{r}
+#creates a barcode plot to visualize gene enrichement 
+barcodeplot(efit$t[,3], index=idx$LIM_MAMMARY_LUMINAL_MATURE_UP, 
+            index2=idx$LIM_MAMMARY_LUMINAL_MATURE_DN, main="LPvsML")
+```
+
+```{r}
+sessionInfo() #software and code used
+```
+
+
+

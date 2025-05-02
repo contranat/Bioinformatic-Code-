@@ -1,0 +1,308 @@
+#tutorial notes
+
+wget \
+  -O "emp-single-end-sequences/sequences.fastq.gz" \
+  "https://data.qiime2.org/2024.10/tutorials/moving-pictures/emp-single-end-sequences/sequences.fastq.gz"
+
+notes:
+* gets fastq.gz files using EMPSingleEndSequence (specifies QIIME2 artifact type)
+
+-------------------------------------------------------------------------------------------------
+
+qiime tools import \
+  --type EMPSingleEndSequences \   
+  --input-path emp-single-end-sequences \
+  --output-path emp-single-end-sequences.qza
+
+notes:
+* "--type EMPSingleEndSequences \" semantic type that describes the kind of information it represents which contains sequences that are multiplexed(barcoded). 
+
+* "--input-path emp-single-end-sequences \" specifies input path where the sequences.fastq.gz is within
+
+* "--output-path emp-single-end-sequences.qza" specifies output path with a specific output file name
+
+--------------------------------------------------------------------------------------------------
+
+qiime tools peek emp-single-end-sequences.qza
+
+notes:
+* peeks into the file by outputing specfic information such as UUID, Type and Data format. 
+
+------------------------------------------------------------------------------------------------
+qiime demux emp-single \
+  --i-seqs emp-single-end-sequences.qza \
+  --m-barcodes-file sample-metadata.tsv \
+  --m-barcodes-column barcode-sequence \
+  --o-per-sample-sequences demux.qza \
+  --o-error-correction-details demux-details.qza
+
+notes:
+* "qiime demux emp-single \" command runs qiime to demultiplex single-end reads on the barcoded sequencees associated with the Earth Microbiome Project. 
+
+* "--i-seqs emp-single-end-sequences.qza \
+  --m-barcodes-file sample-metadata.tsv \
+  --m-barcodes-column barcode-sequence \
+  --o-per-sample-sequences demux.qza \
+  --o-error-correction-details demux-details.qza"
+Notes:
+this piece of code is essentially taking the .qza file generated from the previous code and then uses the metadata.tsv file containing the barcode information and creates a barcodes column with matching barcode-sequence. Then it outputs demux.qza which contains the demultiplexed sequences. Finally it also outputs a demux-details.qza which contains Golay error which is related to the bytes and how it stores information by correcting into readable information. 
+
+
+----------------------------------------------
+
+qiime demux summarize \  #summarizes and visualizes demultiplexed sequences
+  --i-data demux.qza \     #takes as input the demultiplexed sequences as .qza
+  --o-visualization demux.qzv   #outputs a visualization file .qzv version
+
+qiime tools view demux.qzv   #command tool to visualize on browser
+
+notes:
+This code allows to visualize sequence quality. It also shows per sample sequences counts and plots. 
+
+
+----------------------------------------------
+#Quality control - deblur
+
+qiime quality-filter q-score \   #filters low quality sequences
+ --i-demux demux.qza \   #takes as input the raw demux reads
+ --o-filtered-sequences demux-filtered.qza \  #outputs cleaned sequences
+ --o-filter-stats demux-filter-stats.qza   #outputs statistics about which reads were kept or filtered out
+
+
+notes:
+This code uses PHRED scores to filter out low quality reads and ouputs a plot with stats about the reads. 
+
+----------------------------------------------
+
+
+qiime deblur denoise-16S \   #denoises sequences using DEBLUR
+  --i-demultiplexed-seqs demux-filtered.qza \  #takes as input the filtered demux file 
+  --p-trim-length 120 \  #based on the visualization plot the decision to trim all sequences to 120 bp because DEBLR requires equal length 
+  --o-representative-sequences rep-seqs-deblur.qza \   #outputs unique denoised error corrected unique sequence identifiers
+  --o-table table-deblur.qza \  #outputs a feature table showing sequence counts per sample
+  --p-sample-stats \ #creates stats per sample
+  --o-stats deblur-stats.qza   #outputs summary statistics
+
+notes:
+This code uses deblur as a form of quality control to trim out low quality sequences using pHRED score. rep-seqs.qza contains cleaned representative sequences and table.qza is generated and used for downstream analysis. 
+
+
+
+------------------------------------------------
+qiime metadata tabulate \  #visualize filter and deblur statistics
+  --m-input-file demux-filter-stats.qza \  #takes as input the demux filtered stats generated from the above code
+  --o-visualization demux-filter-stats.qzv #outputs a visualization table 
+qiime deblur visualize-stats \  
+  --i-deblur-stats deblur-stats.qza \  #takes as input stats from the deblur denoising step
+  --o-visualization deblur-stats.qzv  #outputs a plot showing which sequences were kept and removed
+
+notes:
+This code in general creates plot to evalutate how many reads were retained.
+
+-------------------------------------------------
+mv rep-seqs-deblur.qza rep-seqs.qza  #renames file
+mv table-deblur.qza table.qza  #renames file
+
+
+
+notes:
+In general this code is renaming files 
+
+------------------------------------------------
+qiime feature-table summarize \ 
+  --i-table table.qza \  #takes as input the feature table with unique sequences per sample
+  --o-visualization table.qzv \  #output file is a summary table 
+  --m-sample-metadata-file sample-metadata.tsv  #utilizes the metadata file to match sample IDs for plots  
+
+qiime feature-table tabulate-seqs \ 
+  --i-data rep-seqs.qza \  #takes as input the representative sequences
+  --o-visualization rep-seqs.qzv  #outputs a table showing these representative sequences and feature IDS
+
+
+notes:
+In general this code outputs a table that shows total sequences per sample and features. It also outputs req-seqs.qzv is used to visualize these resperesentative sequences as opposed to a table. 
+
+
+------------------------------------------------
+qiime phylogeny align-to-tree-mafft-fasttree \ #builds phylogenetic tree from the representative sequences
+  --i-sequences rep-seqs.qza \ #takes as input the representative sequences
+  --o-alignment aligned-rep-seqs.qza \ #outputs aligned sequences using MAFFT
+  --o-masked-alignment masked-aligned-rep-seqs.qza \ #outputs alignment with removed sequences causing noise
+  --o-tree unrooted-tree.qza \ #creates an unrooted tree using FastTree
+  --o-rooted-tree rooted-tree.qza  #created a rooted version of the tree using FastTree
+
+
+notes:
+This piece of code creates phylogenetic metrics needed to perform the downstream diversity analysis. 
+
+
+
+------------------------------------------------
+#alpha and beta diversity 
+qiime diversity core-metrics-phylogenetic \  
+  --i-phylogeny rooted-tree.qza \  #takes as input the rooted phylogenetic tree 
+  --i-table table.qza \  #takes as input the table with the representative sample counts
+  --p-sampling-depth 1103 \  #performs rarefraction depth to normalize sequences to 1103 in length each
+  --m-metadata-file sample-metadata.tsv \  #metadata is used to group for table
+  --output-dir core-metrics-results #outputs a core metric results directory containing alpha and beta diversity results
+
+notes:
+This code calculates alpha metrics such as shannon diversity, Faith's PD, and evenness and beta metrics such as unifrac, bray-curtis. Rarefraction is done to have a uniform comparison across the samples. 
+
+
+-------------------------------------------------
+qiime diversity alpha-group-significance \  
+  --i-alpha-diversity core-metrics-results/faith_pd_vector.qza \  #calculates faith's phylogenetic diversity scores per sample
+  --m-metadata-file sample-metadata.tsv \  #utilizes the metadata file to group samples
+  --o-visualization core-metrics-results/faith-pd-group-significance.qzv  # outputs visualizations containing boxplots and statistical test information
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity core-metrics-results/evenness_vector.qza \ #calculates evenness scores per sample
+  --m-metadata-file sample-metadata.tsv \    #utilizes metadata file for grouping in plots
+  --o-visualization core-metrics-results/evenness-group-significance.qzv  #outputs visualization plots showing the results from fraith pds and evenness. 
+
+notes:
+This code calculates alpha diversity metrics across samples, outputs boxplots and p-values. 
+
+
+--------------------------------------------------
+qiime diversity beta-group-significance \
+  --i-distance-matrix core-metrics-results/unweighted_unifrac_distance_matrix.qza \   #calculates beta diversity matrix using unweighted unifrac
+  --m-metadata-file sample-metadata.tsv \   #utilizes metadata file for grouping 
+  --m-metadata-column body-site \   #utilized the metadata file column to compare groups 
+  --o-visualization core-metrics-results/unweighted-unifrac-body-site-significance.qzv \  #outputs visualization plots for group comparisons
+  --p-pairwise  #performs pairwise group comparisons
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix core-metrics-results/unweighted_unifrac_distance_matrix.qza \  #takes as input the beta diversity matrix
+  --m-metadata-file sample-metadata.tsv \  #utilizes the metadata file for groups 
+  --m-metadata-column subject \  #utilizes the metadata file columns to compare communities by subject ID
+  --o-visualization core-metrics-results/unweighted-unifrac-subject-group-significance.qzv \  #outputs visualization plots of the unweighted unifrac
+  --p-pairwise # performs pairwise PERMANOVA comparisons
+
+notes:
+This code is essentially to perform PERMANOVA test to analyze community composition between groups. It is meant to cluster or separate microbial communities based on sample type/subject ID. 
+
+
+
+-------------------------------------------------
+qiime emperor plot \ #creates PCoA plots 
+  --i-pcoa core-metrics-results/unweighted_unifrac_pcoa_results.qza \  #takes as input the unweighted unifrac distances 
+  --m-metadata-file sample-metadata.tsv \   #utilizes metadata file to color by grouping
+  --p-custom-axes days-since-experiment-start \   #modifies axes to add temporal patterns
+  --o-visualization core-metrics-results/unweighted-unifrac-emperor-days-since-experiment-start.qzv  #outputs a 3D plot
+
+qiime emperor plot \
+  --i-pcoa core-metrics-results/bray_curtis_pcoa_results.qza \  #takes as input bray-curtis distance, calculated in the previous portion of code
+  --m-metadata-file sample-metadata.tsv \  #utilized metadata file for plotting
+  --p-custom-axes days-since-experiment-start \  #modifies axes to include time/day since experiment started
+  --o-visualization core-metrics-results/bray-curtis-emperor-days-since-experiment-start.qzv  #outputs a plot using bray-curtis distances
+
+notes:
+This code creates emperor plots used to observe clustering across samples in a 3D space by time,
+
+
+-------------------------------------------------
+#alpha rarefraction plotting
+qiime diversity alpha-rarefaction \
+  --i-table table.qza \  #takes as input the feature table containing representative sample counts
+  --i-phylogeny rooted-tree.qza \  #takes as input the phylogenetic tree for faith's pd
+  --p-max-depth 4000 \  #modifies depth based on samples
+  --m-metadata-file sample-metadata.tsv \   #metadata file used to color by groups in plots
+  --o-visualization alpha-rarefaction.qzv   #outputs a visualization plot of alpha diversity vs depth 
+
+notes:
+This code is used to show how alpha diversity changes with sampling depth. 
+
+
+------------------------------------------------
+#taxonomic analysis
+
+
+wget \  #downloads classifier for 16s 
+  -O "gg-13-8-99-515-806-nb-classifier.qza" \
+  "https://data.qiime2.org/classifiers/sklearn-1.4.2/greengenes/gg-13-8-99-515-806-nb-classifier.qza"
+
+
+qiime feature-classifier classify-sklearn \ #assigns taxnomy to each representative seq using the above classifer or sklearn classfier
+  --i-classifier gg-13-8-99-515-806-nb-classifier.qza \   #takes as input a naive bayes classifier
+  --i-reads rep-seqs.qza \  #takes as input the representative sequences
+  --o-classification taxonomy.qza  #outputs taxnomoy assingments per representative sequences
+
+qiime metadata tabulate \  #create a visualizable table
+  --m-input-file taxonomy.qza \  #uses taxnomy file 
+  --o-visualization taxonomy.qzv #outputs a summary table 
+
+
+notes:
+This code assingns taxonomy to each representative sequence using sklearn's classifier. 
+
+
+-------------------------------------------------
+qiime taxa barplot \
+  --i-table table.qza \  #takes as input the feature table with the representative seqs per sample
+  --i-taxonomy taxonomy.qza \  #takes as input the taxonomy classfication results 
+  --m-metadata-file sample-metadata.tsv \   #utilizes metadata file for grouping used in plots
+  --o-visualization taxa-bar-plots.qzv   #outputs taxonomic bar plots
+
+
+notes:
+this code generates plots to visualize relative abundance of taxa across samples. 
+
+------------------------------------------------
+#differential abundance test with ANCOMBC
+qiime feature-table filter-samples \
+  --i-table table.qza \  #takes as input the feature table
+  --m-metadata-file sample-metadata.tsv \  #utilizes metadata file to select sample category 
+  --p-where "[body-site]='gut'" \  #filters only gut samples
+  --o-filtered-table gut-table.qza  #outputs a new feature table only containing gut samples
+
+notes:
+This code filteres out a table with only gut samples
+
+
+----------------------------------------------
+qiime composition ancombc \
+  --i-table gut-table.qza \  #takes as input the filtered table with gut only
+  --m-metadata-file sample-metadata.tsv \  #utilizes metadata file 
+  --p-formula 'subject' \  #specifies statistical formula specifying variable "subject" to test
+  --o-differentials ancombc-subject.qza  #outputs abundant taxa by subject 
+
+qiime composition da-barplot \
+  --i-data ancombc-subject.qza \  #takes as input the ANCOMBC.qza file 
+  --p-significance-threshold 0.001 \   #specifies p-value significance value cutoff
+  --o-visualization da-barplot-subject.qzv    #outputs a barplot of significant taxa
+
+
+notes:
+this code identifies taxa that differs significantly between subjects or groups based on abundance. The output file shows only significant taxa based on the p-value threshold. 
+
+
+----------------------------------------------
+qiime taxa collapse \
+  --i-table gut-table.qza \  #takes as input the feature with only gut 
+  --i-taxonomy taxonomy.qza \  #takes as input the file containing taxonomy classifications
+  --p-level 6 \ #selects for level 6 of genus level
+  --o-collapsed-table gut-table-l6.qza  #outputs a new table grouped by genus
+
+qiime composition ancombc \
+  --i-table gut-table-l6.qza \  #takes as input the level 6 gut feature table
+  --m-metadata-file sample-metadata.tsv \ #utilized metadata file for plotting
+  --p-formula 'subject' \  #tests abundance by subject ID
+  --o-differentials l6-ancombc-subject.qza   #outputs abundant genera by subject
+
+qiime composition da-barplot \
+  --i-data l6-ancombc-subject.qza \  #takes as input the abundance results from the previous code
+  --p-significance-threshold 0.001 \ #specifies FDR adjusted p-values with threshold of 0.001
+  --p-level-delimiter ';' \   #specifies taxnonomic path 
+  --o-visualization l6-da-barplot-subject.qzv #outputs barplot with significant genera
+
+
+notes:
+This code selects genera that are statistically significant different between subjects. It then outputs barplot that groups taxa by genus. 
+
+
+------------------------------------------------
+
+
+
