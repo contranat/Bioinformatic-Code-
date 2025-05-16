@@ -6,6 +6,9 @@ This repository holds analysis done in BIOL668 such as: Bioinformatics Code
 * Contreras_qiime2_tutorial.txt
 
 ## Files Needed: 
+* rna_counts_data.csv
+* rna_map_update copy.csv
+* pbmc3k_filtered_gene_bc_matrices.tar.gzDownload pbmc3k_filtered_gene_bc_matrices.tar.gz
 
 ## QIIME2
 Follows QIIME2 tutorial and each piece of code is explained in the txt. file (Contreras_qiime2_tutorial.txt). 
@@ -19,10 +22,8 @@ Tutorial can be found here:
 
  
 
- 
-
-
 ## RNAseq Analysis
+
 
 
 ## Algs and Genome Project
