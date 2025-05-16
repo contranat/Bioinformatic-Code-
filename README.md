@@ -8,6 +8,7 @@ This repository holds analysis done in BIOL668 such as: Bioinformatics Code
 * Contreras_BIOL668_RNAseq_tut2.Rmd
 * Contreras_BIOL668_RNAseq_tut3.Rmd
 * algs_genome_code.txt
+* Contreras_algs_genome (1) (1).pdf
 
 ## Files Needed: 
 * rna_counts_data.csv
@@ -53,5 +54,9 @@ https://satijalab.org/seurat/
 Performs fastp, kaiju on reads_2.fq and reads_1.fq files. 
 Code can be found in the algs_genome_code.txt
 
-Example usage can be found in 
+Example usage can be found in: Contreras_algs_genome (1) (1).pdf
+
+<img width="650" alt="Screenshot 2025-05-15 at 5 46 22 PM" src="https://github.com/user-attachments/assets/44c29fc5-d18c-4fa0-8c05-1ffdf5298332" />
+
+
 
