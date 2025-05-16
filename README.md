@@ -4,11 +4,14 @@ This repository holds analysis done in BIOL668 such as: Bioinformatics Code
 ## Features:
 * Contreras_QIIME_Tutorial (2).pdf
 * Contreras_qiime2_tutorial.txt
+* Contreras_BIOL668_RNAseq_tut1.Rmd
+* Contreras_BIOL668_RNAseq_tut2.Rmd
+* Contreras_BIOL668_RNAseq_tut3.Rmd
 
 ## Files Needed: 
 * rna_counts_data.csv
 * rna_map_update copy.csv
-* pbmc3k_filtered_gene_bc_matrices.tar.gzDownload pbmc3k_filtered_gene_bc_matrices.tar.gz
+* pbmc3k_filtered_gene_bc_matrices.tar.gz
 
 ## QIIME2
 Follows QIIME2 tutorial and each piece of code is explained in the txt. file (Contreras_qiime2_tutorial.txt). 
@@ -23,6 +26,19 @@ Tutorial can be found here:
  
 
 ## RNAseq Analysis
+RNAseq analysis is followed through R notebooks (
+
+
+Part 1 follows a limma, Glimma and edgeR. To follow the turtorial you can find the data download (https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE63310&format=file)
+Tutorial can be found here: https://bioconductor.org/packages/release/workflows/vignettes/RNAseq123/inst/doc/limmaWorkflow.html
+
+Part 2 follows a DESeq2 tutorial to analyze gene differential expression:
+https://ashleyschwartz.com/posts/2023/05/deseq2-tutorial
+
+Part 3 follows a Single-Cell RNA sequence analysis using Seurat:
+https://satijalab.org/seurat/
+
+
 
 
 
