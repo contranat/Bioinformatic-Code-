@@ -1,5 +1,5 @@
 # Bioinformatic-Code-
-This repository holds analysis done in BIOL668 such as: Bioinformatics Code 
+This repository holds analysis done in BIOL668 such as: QIIME2, RNAseq and Kaiju analysis 
 
 ## Features:
 * Contreras_QIIME_Tutorial (2).pdf
