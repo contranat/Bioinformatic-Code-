@@ -7,11 +7,20 @@ This repository holds analysis done in BIOL668 such as: Bioinformatics Code
 * Contreras_BIOL668_RNAseq_tut1.Rmd
 * Contreras_BIOL668_RNAseq_tut2.Rmd
 * Contreras_BIOL668_RNAseq_tut3.Rmd
+* algs_genome_code.txt
 
 ## Files Needed: 
 * rna_counts_data.csv
 * rna_map_update copy.csv
 * pbmc3k_filtered_gene_bc_matrices.tar.gz
+* rna_map_update copy.csv
+* rna_counts_data.csv
+* reads_2.fq
+* reads_1.fq
+* SP1.fq
+* out.insub732_2_R1_fastp.fastq
+
+
 
 ## QIIME2
 Follows QIIME2 tutorial and each piece of code is explained in the txt. file (Contreras_qiime2_tutorial.txt). 
@@ -40,6 +49,9 @@ https://satijalab.org/seurat/
 
 
 
-
-
 ## Algs and Genome Project
+Performs fastp, kaiju on reads_2.fq and reads_1.fq files. 
+Code can be found in the algs_genome_code.txt
+
+Example usage can be found in 
+
